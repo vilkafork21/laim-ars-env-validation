@@ -1,0 +1,321 @@
+{
+  "id": "85bf5dd9-150d-4e07-ba38-6889e50ffc5f",
+  "name": "laim-ars-env-validation-quality",
+  "description": "Проверка качества телеметрии: итог по K1–K6 или по K1–K7 на выбор, K8 диагностика и актуальный UF-отчёт",
+  "fullDescription": "Ответвление laim-ars-env-validation-uf: то же проверенное по SHA-256 ядро validation, те же порты, тот же отчёт и verdict. Отличие — настройка «Итог проверки» (verdict_scope). Режим «Качество данных K1–K6» (по умолчанию) окрашивает status только по качеству данных: red — не пройдены K1–K6 (схема, значения, инварианты, дубли, отбраковка, целостность); amber — схема с замечаниями, неблокирующие нарушения или некритичные отклонения; green — отклонений нет. Готовность к мониторингу K7 рассчитывается и показывается в отчёте и verdict, но в светофор не входит — недостаточный объём данных не даёт красного. Режим «Полная проверка K1–K7» повторяет поведение laim-ars-env-validation-uf: not_ready по K7 даёт red, pilot — amber.\n\nK2 блокируют только обязательные атрибуты: допуск сравнивается с числом спанов, нарушивших правило одного отдельного обязательного атрибута, а не с суммой ячеек. K3 считает трейсы, в которых разошёлся хотя бы один инвариант. Процентные допуски округляются вверх по фактическому объёму. Колонки вне спецификации показываются в отчёте, но сами по себе не понижают K1.\n\nШтатный режим: подключить spans_df от extract_publisher.monitoring, а received_codebase и received_checksum — от laim-ars-src-validation. significance выбирает preset A–E. Пустые экспертные поля сохраняют пороги выбранного preset и применяются только при явном заполнении. Выход verdict подключается к converter_config.telemetry_verdict.",
+  "shortNameToDisplay": "VLQ",
+  "ports": [
+    {
+      "in": true,
+      "name": "received_codebase",
+      "label": "received_codebase",
+      "description": "base64 tar.gz ядра validation из codebase_validation ноды laim-ars-src-validation",
+      "type": "default",
+      "shape": "shape_model",
+      "required": true,
+      "order": 1
+    },
+    {
+      "in": true,
+      "name": "received_checksum",
+      "label": "received_checksum",
+      "description": "SHA-256 received_codebase из checksum_validation ноды laim-ars-src-validation",
+      "type": "default",
+      "shape": "shape_model",
+      "required": true,
+      "order": 2
+    },
+    {
+      "in": true,
+      "name": "spans_df",
+      "label": "spans_df",
+      "description": "pandas dataframe спанов; в целевом графе подключается от extract_publisher.monitoring. Вместо порта допустим source_path.",
+      "type": "dataframe",
+      "shape": "shape_dataframe",
+      "order": 3
+    },
+    {
+      "in": false,
+      "name": "report_html",
+      "label": "report_html",
+      "description": "Самодостаточный HTML-отчёт о качестве телеметрии",
+      "type": "hidden",
+      "order": 4
+    },
+    {
+      "in": false,
+      "name": "status",
+      "label": "status",
+      "description": "Светофор по выбранному итогу: качество данных K1–K6 или полная проверка K1–K7 — green, amber или red",
+      "type": "traffic_light",
+      "order": 5
+    },
+    {
+      "in": false,
+      "name": "verdict",
+      "label": "verdict",
+      "description": "Структурированные критерии K1–K8, readiness, метрики, распределение спанов и проблемы",
+      "type": "default",
+      "shape": "shape_model",
+      "order": 6
+    }
+  ],
+  "script": {
+    "type": "python",
+    "deployType": "docker",
+    "baseImageKey": "py312-simple",
+    "runConfiguration": {
+      "libraryDependencies": [
+        "requirements.txt"
+      ],
+      "sourceFiles": [
+        "main.py",
+        "_worker.py"
+      ],
+      "functionName": "main",
+      "functionParameters": [],
+      "output": {
+        "type": "json",
+        "output": []
+      }
+    }
+  },
+  "ui": {
+    "settings": [
+      {
+        "page": "General",
+        "title": "Источник и политика",
+        "components": [
+          {
+            "type": "form",
+            "label": "Основные параметры",
+            "config": {
+              "components": [
+                {
+                  "parameter": "source_path",
+                  "label": "Путь к parquet, только если spans_df не подключён",
+                  "type": "string",
+                  "defaultValue": "",
+                  "placeholder": "/mnt/data/traces/spans.parquet",
+                  "uiComponent": "input"
+                },
+                {
+                  "parameter": "device",
+                  "label": "Движок Polars",
+                  "type": "string",
+                  "defaultValue": "cpu",
+                  "uiComponent": "select",
+                  "allowedValues": [
+                    {
+                      "CPU / streaming": "cpu"
+                    },
+                    {
+                      "GPU": "gpu"
+                    }
+                  ]
+                },
+                {
+                  "parameter": "significance",
+                  "label": "Степень значимости агента — выбирает preset K5 и K7",
+                  "type": "string",
+                  "defaultValue": "C",
+                  "uiComponent": "select",
+                  "allowedValues": [
+                    {
+                      "A — наивысшие требования": "A"
+                    },
+                    {
+                      "B — высокие требования": "B"
+                    },
+                    {
+                      "C — средние требования": "C"
+                    },
+                    {
+                      "D — сниженные требования": "D"
+                    },
+                    {
+                      "E — минимальные требования": "E"
+                    }
+                  ]
+                },
+                {
+                  "parameter": "verdict_scope",
+                  "label": "Итог проверки — что окрашивает светофор status",
+                  "type": "string",
+                  "defaultValue": "quality",
+                  "uiComponent": "select",
+                  "allowedValues": [
+                    {
+                      "Качество данных K1–K6 (K7 справочно)": "quality"
+                    },
+                    {
+                      "Полная проверка K1–K7 (готовность к мониторингу)": "full"
+                    }
+                  ]
+                },
+                {
+                  "parameter": "recast",
+                  "label": "Привести типы платформенного dataframe к спецификации",
+                  "defaultValue": true,
+                  "uiComponent": "checkbox"
+                },
+                {
+                  "parameter": "collect_batch_size",
+                  "label": "Число планов метрик в одной партии; 0 — все одновременно",
+                  "type": "string",
+                  "defaultValue": "4",
+                  "placeholder": "целое число ≥ 0",
+                  "uiComponent": "input"
+                },
+                {
+                  "parameter": "window_days",
+                  "label": "Окно K7, дней",
+                  "type": "string",
+                  "defaultValue": "30",
+                  "placeholder": "целое число > 0",
+                  "uiComponent": "input"
+                }
+              ]
+            }
+          },
+          {
+            "type": "form",
+            "label": "Допуски качества K2–K4/K6 — число или доля со знаком %",
+            "config": {
+              "components": [
+                {
+                  "parameter": "max_nulls",
+                  "label": "Максимум пустых значений после приведения — число или доля спанов, напр. 0.1%; пусто = 0",
+                  "type": "string",
+                  "defaultValue": "0.1%",
+                  "uiComponent": "input",
+                  "placeholder": "0.1% или целое число"
+                },
+                {
+                  "parameter": "max_rules",
+                  "label": "Не более X спанов нарушают правило одного обязательного атрибута — число или доля, напр. 0.1%; пусто = 0",
+                  "type": "string",
+                  "defaultValue": "0.1%",
+                  "uiComponent": "input",
+                  "placeholder": "0.1% или целое число"
+                },
+                {
+                  "parameter": "max_dups",
+                  "label": "Максимум дублей пары trace_id × span_id — число или доля спанов, напр. 0.1%; пусто = 0",
+                  "type": "string",
+                  "defaultValue": "0.1%",
+                  "uiComponent": "input",
+                  "placeholder": "0.1% или целое число"
+                },
+                {
+                  "parameter": "max_breaks",
+                  "label": "Не более X трейсов имеют расхождение хотя бы одного инварианта — число или доля, напр. 0.1%; пусто = 0",
+                  "type": "string",
+                  "defaultValue": "0.1%",
+                  "uiComponent": "input",
+                  "placeholder": "0.1% или целое число"
+                }
+              ]
+            }
+          },
+          {
+            "type": "form",
+            "label": "Экспертные переопределения preset — обычно оставить пустыми",
+            "config": {
+              "components": [
+                {
+                  "parameter": "volume_target",
+                  "label": "Целевой эффективный объём",
+                  "type": "string",
+                  "defaultValue": "",
+                  "uiComponent": "input"
+                },
+                {
+                  "parameter": "volume_steepness",
+                  "label": "Крутизна функции объёма",
+                  "type": "string",
+                  "defaultValue": "",
+                  "uiComponent": "input"
+                },
+                {
+                  "parameter": "rate_target",
+                  "label": "Целевой приток трейсов на корзину",
+                  "type": "string",
+                  "defaultValue": "",
+                  "uiComponent": "input"
+                },
+                {
+                  "parameter": "min_eff_traces",
+                  "label": "Минимум эффективных трейсов",
+                  "type": "string",
+                  "defaultValue": "",
+                  "uiComponent": "input"
+                },
+                {
+                  "parameter": "max_loss",
+                  "label": "Максимальная доля отбраковки, 0..1",
+                  "type": "string",
+                  "defaultValue": "",
+                  "uiComponent": "input"
+                },
+                {
+                  "parameter": "min_quality",
+                  "label": "Минимальное качество, 0..1",
+                  "type": "string",
+                  "defaultValue": "",
+                  "uiComponent": "input"
+                },
+                {
+                  "parameter": "ready_at",
+                  "label": "Порог ready, 0..1",
+                  "type": "string",
+                  "defaultValue": "",
+                  "uiComponent": "input"
+                },
+                {
+                  "parameter": "pilot_at",
+                  "label": "Порог pilot, 0..1",
+                  "type": "string",
+                  "defaultValue": "",
+                  "uiComponent": "input"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "result": {
+      "title": "Проверка качества телеметрии",
+      "components": [
+        {
+          "type": "semaphore",
+          "label": "Итог проверки",
+          "config": {
+            "datasets": [
+              {
+                "value": "$.status.value",
+                "title": "$.status.title"
+              }
+            ]
+          }
+        },
+        {
+          "type": "html",
+          "uiComponent": "html",
+          "name": "$.report_html",
+          "parameter": "$.report_html",
+          "label": "Отчёт о качестве телеметрии",
+          "config": {
+            "datasets": [
+              {
+                "data": "$.report_html"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "shape": "other"
+}

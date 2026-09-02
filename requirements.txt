@@ -1,0 +1,6 @@
+pandas==2.3.3
+pyarrow==21.0.0
+polars[numpy,pandas,pyarrow,timezone,style]==1.35.2
+altair[all]==6.0.0
+psutil==7.2.2
+vl-convert-python>=1.8,<2
